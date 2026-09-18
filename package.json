@@ -1,0 +1,12 @@
+{
+  "name": "jev-tetris",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local single-player Tetris driven by TypeSafe's Jev decision model",
+  "scripts": {
+    "test": "node --test test/",
+    "bench": "node test/bench.js 50",
+    "start": "node server.js"
+  }
+}

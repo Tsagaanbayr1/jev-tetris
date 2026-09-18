@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tsagaanbayar vs Jev</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <!-- VS intro ---------------------------------------------------------- -->
+    <section id="vs" class="screen vs show">
+      <div class="vs-side left">
+        <div class="vs-tag">HUMAN</div>
+        <div class="vs-name">TSAGAANBAYAR</div>
+        <div class="vs-keys">
+          <span><kbd>←</kbd><kbd>→</kbd> move</span>
+          <span><kbd>↓</kbd> soft drop</span>
+          <span><kbd>Space</kbd> hard drop</span>
+          <span><kbd>↑</kbd> / <kbd>X</kbd> rotate ↻</span>
+          <span><kbd>Z</kbd> / <kbd>Ctrl</kbd> rotate ↺</span>
+          <span><kbd>A</kbd> rotate 180</span>
+          <span><kbd>C</kbd> / <kbd>Shift</kbd> hold</span>
+        </div>
+      </div>
+
+      <div class="vs-mid">
+        <div class="vs-word">VS</div>
+        <label class="vs-opt">
+          Jev speed
+          <select id="jev-pps">
+            <option value="0.8">0.8 pps · warm-up</option>
+            <option value="1.2">1.2 pps · casual</option>
+            <option value="1.8" selected>1.8 pps · strong</option>
+            <option value="2.5">2.5 pps · fast</option>
+            <option value="3.5">3.5 pps · blitz</option>
+            <option value="0">unlimited</option>
+          </select>
+        </label>
+        <button id="go" class="btn primary big">Start battle</button>
+        <div class="vs-hint">or press Enter</div>
+        <div id="jev-status" class="vs-status">checking Jev…</div>
+      </div>
+
+      <div class="vs-side right">
+        <div class="vs-tag">BOT · jev-latest</div>
+        <div class="vs-name">JEV</div>
+        <div class="vs-blurb">
+          Jev chooses every placement itself, spins included, from the moves it
+          can reach. Each choice goes through the TypeSafe API.
+        </div>
+      </div>
+    </section>
+
+    <!-- Match ------------------------------------------------------------- -->
+    <section id="match" class="screen match">
+      <header class="bar">
+        <div class="who left"><span class="name">TSAGAANBAYAR</span><span class="role">you</span></div>
+        <div class="clock" id="clock">0:00</div>
+        <div class="who right"><span class="role">bot</span><span class="name">JEV</span></div>
+      </header>
+
+      <div class="arena">
+        <div class="player" id="p-human">
+          <canvas id="c-human"></canvas>
+          <dl class="pstats" id="s-human"></dl>
+        </div>
+
+        <div class="player" id="p-jev">
+          <canvas id="c-jev"></canvas>
+          <dl class="pstats" id="s-jev"></dl>
+          <div class="think" id="think"></div>
+        </div>
+      </div>
+
+      <footer class="foot">
+        <span>Esc to pause</span>
+        <span id="gravity-label"></span>
+      </footer>
+
+      <div id="countdown" class="countdown"></div>
+
+      <div id="paused" class="modal">
+        <div class="card">
+          <div class="card-title">Paused</div>
+          <div class="row">
+            <button id="resume" class="btn primary">Resume</button>
+            <button id="forfeit" class="btn">Back to menu</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="result" class="modal">
+        <div class="card">
+          <div class="card-kicker" id="r-kicker"></div>
+          <div class="card-title" id="r-title"></div>
+          <table class="rtable" id="r-table"></table>
+          <div class="row">
+            <button id="rematch" class="btn primary">Rematch</button>
+            <button id="menu" class="btn">Menu</button>
+          </div>
+          <div class="vs-hint">Enter for a rematch</div>
+        </div>
+      </div>
+    </section>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
