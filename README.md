@@ -57,18 +57,34 @@ python3 -m venv .venv-laya
 It listens on `127.0.0.1:8090` (`LAYA_PORT`, `LAYA_MODEL`, `LAYA_DEVICE` override
 it; the game server finds it via `LAYA_URL`). Leave it running.
 
-### 3. Start the game
+### 3. Start the game — gaming mode (one command)
 
 ```bash
-npm start                 # → http://localhost:8081
+./play.sh                 # or: npm run play
 ```
 
-To keep both running in the background:
+This starts Laya and the game server in the background, waits until both are
+healthy, and opens http://localhost:8081. It also sets up Laya's Python
+environment on first run if `.venv-laya` is missing. For speed (macOS, no admin
+rights needed):
+
+- both processes run at the highest throughput and latency QoS tiers
+  (`taskpolicy -t 0 -l 0`), so they are never throttled as background work;
+- Laya uses every performance core for its CPU work and the GPU (MPS) for the
+  model, with no cap on PyTorch's unified-memory use;
+- `caffeinate` keeps the Mac and display awake for as long as the server runs;
+- it warns if Low Power Mode is on or the Mac is on battery.
 
 ```bash
-nohup .venv-laya/bin/python ai/laya_server.py > /tmp/laya-server.log 2>&1 &
-nohup node server.js > /tmp/jev-server.log 2>&1 &
+./play.sh --boost         # also raise CPU priority to the maximum (sudo renice; asks for your password)
+./play.sh status          # what is running, Laya's latency so far
+./play.sh stop            # or: npm run stop
 ```
+
+Logs go to `.run/laya.log` and `.run/server.log` (git-ignored). More RAM does
+not make Laya faster: it needs ~1.3 GB and is limited by GPU compute.
+
+To run just the game server in the foreground instead: `npm start`.
 
 After changing server-side code, restart `node server.js` — an old process on
 8081 keeps serving the old code (`pkill -f "node server.js"`).
