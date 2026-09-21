@@ -11,6 +11,7 @@ no API key and no network round trip.
 POST /v1/systemone  { state, questions }  ->  { model, answers, usage }
 GET  /health        ->  { ok, model, device }
 """
+import gc
 import json
 import os
 import sys
@@ -27,6 +28,10 @@ import laya  # noqa: E402
 
 MODEL = os.environ.get("LAYA_MODEL", "convaiinnovations/laya-multilingual")
 PORT = int(os.environ.get("LAYA_PORT", "8090"))
+
+# CPU-side work (tokenising, glue ops) on every performance core; the model runs on the GPU.
+THREADS = int(os.environ.get("LAYA_THREADS", "0")) or os.cpu_count()
+torch.set_num_threads(THREADS)
 
 print(f"loading {MODEL} ...", flush=True)
 agent = laya.load(MODEL, device=os.environ.get("LAYA_DEVICE"))
@@ -62,6 +67,10 @@ def keep_warm():
 
 for _ in range(5):
     predict(WARM["state"], WARM["questions"])
+# Everything loaded so far lives for the whole process: freeze it out of the
+# garbage collector so a collection never pauses a live decision.
+gc.collect()
+gc.freeze()
 threading.Thread(target=keep_warm, daemon=True).start()
 
 
@@ -102,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Laya on http://127.0.0.1:{PORT}  ({MODEL}, {agent.device})", flush=True)
+    print(f"Laya on http://127.0.0.1:{PORT}  ({MODEL}, {agent.device}, {THREADS} CPU threads)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

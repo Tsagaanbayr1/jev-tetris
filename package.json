@@ -7,6 +7,8 @@
   "scripts": {
     "test": "node --test test/",
     "bench": "node test/bench.js 50",
-    "start": "node server.js"
+    "start": "node server.js",
+    "play": "./play.sh",
+    "stop": "./play.sh stop"
   }
 }
