@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 
 import { COLS, ROWS } from './engine/pieces.js'
 import { JevClient } from './ai/jev.js'
-import { LayaClient, buildLayaDecision } from './ai/laya.js'
+import { LayaClient, buildLayaDecision, combineWithPrior } from './ai/laya.js'
 import {
   candidatesFor, buildBattleState, buildBattleQuestions, readBattleDecision,
 } from './ai/battle.js'
@@ -101,8 +101,10 @@ async function decide(pos, model) {
   let error = null
   try {
     if (!client) throw new Error(jevError ?? `unknown model ${model}`)
-    const response = await client.ask(state, questions, { timeoutMs: REQUEST_MS, retries: 0 })
+    let response = await client.ask(state, questions, { timeoutMs: REQUEST_MS, retries: 0 })
+    if (model === 'laya') response = combineWithPrior(response, candidates)
     d = readBattleDecision(response, candidates)
+    d.modelChoice = response.answers?.placement?.layaChoice ?? null
   } catch (err) {
     error = err.message
   }
@@ -133,6 +135,10 @@ async function decide(pos, model) {
     total,
     fallback,
     error,
+    // Laya's own pick, when the strategy prior overruled it (see ai/laya.js).
+    overruled: d?.modelChoice && d.modelChoice !== chosen.id
+      ? candidates.find((c) => c.id === d.modelChoice)?.label ?? d.modelChoice
+      : null,
   }
 }
 
