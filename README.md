@@ -101,10 +101,14 @@ Choose the match on the VS screen:
 | You vs Jev | you (keyboard) | Jev |
 | Jev vs Laya | Jev | Laya |
 
-Each bot has its own speed: 0.8–3.5 pieces per second, unlimited, or **MAX**,
-where the whole route and drop happen in one frame as soon as the decision
-arrives. Laya defaults to MAX (~9 pieces/s on an M1 Pro, bound by its ~85 ms
-inference); Jev defaults to 1.8.
+Each bot has its own speed: 0.8–3.5 pieces per second, unlimited, or **MAX**.
+MAX never waits between pieces, but it still *plays* every move instead of
+placing the piece: one input per animation frame (60/s, several times what a
+hand can hold) and a descent at 4 rows a frame, so the piece is watched sliding,
+spinning and dropping into place. Measured on an M1 Pro that is ~7 pieces/s of
+fully animated play, against ~1.9 for the 1.8 pps setting. Laya defaults to MAX
+(its local inference is ~85 ms and pre-planned while the previous piece is still
+travelling); Jev defaults to 1.8, which leaves its API round trip visible.
 
 Under each bot's HOLD box is a **decision log**, newest on top: the move played,
 whether it was pre-planned or how long it took, the top 3 options with their
@@ -193,11 +197,11 @@ ai/         the model boundary
   heuristic.js  display-only baseline, so you can see where Jev disagrees
 public/     the browser game
   engine/…      the same engine modules, served to the client and shared
-  bot.js        plays a model's choices back as real inputs (paced, or MAX)
+  bot.js        plays a model's choices back as real inputs (paced, or MAX-superhuman)
   predict.js    prefetch projection (pure — runs in the browser and the tests)
   render.js     canvas rendering and effects
 server.js   static files + POST /decide?model=jev|laya + GET /health
-test/       engine rules, SRS kicks, spins, search, prefetch projection, live bench
+test/       engine rules, SRS kicks, spins, search, prefetch projection, bot pacing, live bench
 ```
 
 ## Tests and benchmarking
