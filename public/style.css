@@ -272,8 +272,8 @@ kbd {
   display: flex;
   justify-content: center;
   align-items: flex-start; /* both boards share a top edge, whatever sits below */
-  padding-top: max(12px, calc((100vh - 760px) / 2));
-  gap: 48px;
+  padding-top: 12px;
+  gap: 32px;
   padding-left: 12px;
   padding-right: 12px;
   min-height: 0;
@@ -287,6 +287,61 @@ kbd {
   gap: 10px;
 }
 
+/* Canvas plus the decision log laid over its hold column. */
+.bwrap { position: relative; }
+
+.dlog {
+  --s: 1;
+  position: absolute;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: calc(7px * var(--s));
+  font: calc(5.2px * var(--s)) / 1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: max(9px, calc(5.2px * var(--s))); /* readable on small windows too */
+  color: var(--dim);
+  padding-right: calc(4px * var(--s));
+  /* older decisions fade out toward the bottom */
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+.dl-item { display: flex; flex-direction: column; gap: calc(1.5px * var(--s)); }
+.dl-item:first-child { color: var(--ink); }
+.dl-head { display: flex; gap: 0.6em; align-items: baseline; white-space: nowrap; }
+.dl-n { color: var(--faint); }
+.dl-what { overflow: hidden; text-overflow: ellipsis; }
+.dl-t { margin-left: auto; color: var(--faint); }
+.dl-bad { color: var(--bad); font-weight: 700; }
+.dl-opt {
+  position: relative;
+  display: flex;
+  gap: 0.6em;
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  white-space: nowrap;
+}
+.dl-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(139, 151, 168, 0.18);
+  border-radius: 3px;
+}
+.dl-opt.chosen { color: var(--ink); font-weight: 700; }
+.dl-opt.chosen .dl-bar { background: rgba(99, 214, 95, 0.35); }
+.dl-pct { position: relative; width: 3.2em; text-align: right; flex: none; }
+.dl-lab { position: relative; overflow: hidden; text-overflow: ellipsis; }
+.dl-meta { color: var(--faint); font-size: 0.9em; }
+
+/* Who plays this board, centred right above it. */
+.pname {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+.pname.left { color: var(--human); }
+.pname.right { color: var(--jev); }
+
 .player canvas {
   display: block;
 }
@@ -294,8 +349,8 @@ kbd {
 .pstats {
   margin: 0;
   display: flex;
-  gap: 18px;
-  font-size: 12px;
+  gap: 28px;
+  font-size: 18px;
 }
 
 .pstats div {
@@ -306,20 +361,20 @@ kbd {
 
 .pstats dt {
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .pstats dd {
   margin: 0;
-  font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 700 20px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .think {
-  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--faint);
-  height: 14px;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--dim);
+  height: 16px;
 }
 
 .foot {
@@ -429,3 +484,6 @@ kbd {
 .rtable td {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* `hidden` must win over display rules like .vs-opt { display: flex }. */
+[hidden] { display: none !important; }
