@@ -304,6 +304,7 @@ function logDecision(d, id) {
       <div class="dl-head"><span class="dl-n">#${n}</span><b style="color:${COLOR[c.type]}">${c.type}</b>
         <span class="dl-what">${esc(bits)}</span><span class="dl-t">${timing}</span></div>
       ${rows}${fb}
+      ${d.overruled ? `<div class="dl-meta">strategy overruled Laya's pick: ${esc(shortLabel(d.overruled))}</div>` : ''}
       <div class="dl-meta">conf ${d.confidence == null ? '—' : d.confidence.toFixed(2)} · ${d.options}/${d.total} options</div>`
   }
   box.prepend(item)

@@ -10,7 +10,7 @@
 
 import { Game } from '../engine/engine.js'
 import { JevClient } from '../ai/jev.js'
-import { LayaClient, buildLayaDecision } from '../ai/laya.js'
+import { LayaClient, buildLayaDecision, combineWithPrior } from '../ai/laya.js'
 import {
   candidatesFor, buildBattleState, buildBattleQuestions, readBattleDecision,
 } from '../ai/battle.js'
@@ -65,7 +65,8 @@ async function main() {
 
     let d = null
     try {
-      const response = await jev.ask(state, questions)
+      let response = await jev.ask(state, questions)
+      if (LAYA) response = combineWithPrior(response, candidates)
       d = readBattleDecision(response, candidates)
     } catch (err) {
       if (VERBOSE) console.log(`  ! ${err.message}`)

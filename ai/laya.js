@@ -14,11 +14,14 @@
 
 import http from 'node:http'
 
+// Measured (test/bench.js, 200 pieces): labelling options with their rank, or
+// showing fewer of them, made Laya play WORSE on its own; 8 plain options plus
+// the strategy prior below played best (survived, 0.34 attack/piece).
 const LAYA_K = 8
 
 const OBJECTIVE =
-  'Versus Tetris: pick the best placement. Survive first; never create holes; ' +
-  'prefer big attacks (sent) over wasting rows on small clears; keep a well for quads.'
+  'Versus Tetris: pick the best placement. Survive, never add holes, prefer ' +
+  'quads and T-spins over small clears, keep a well for the next I.'
 
 /** Short, fact-bearing option text: what Laya actually scores. */
 function optionText(c) {
@@ -39,15 +42,15 @@ function optionText(c) {
 /** Trim the shortlist to LAYA_K, keeping the strongest attack and one hold option. */
 function trim(candidates) {
   const keep = candidates.slice(0, LAYA_K)
+  const extra = []
   const must = [
     [...candidates].sort((a, b) => b.sent - a.sent).find((c) => c.sent > 0),
     candidates.find((c) => c.useHold),
   ]
-  let slot = keep.length - 1 // overwrite the weakest, one slot each
   for (const c of must) {
-    if (c && !keep.includes(c)) keep[slot--] = c
+    if (c && !keep.includes(c) && !extra.includes(c)) extra.push(c)
   }
-  return keep
+  return [...keep, ...extra] // at most 10 options: still inside Laya's head budget
 }
 
 export function buildLayaDecision(pos, candidates) {
@@ -67,6 +70,36 @@ export function buildLayaDecision(pos, candidates) {
     candidates: shown,
     state,
     questions: { placement: { type: 'choice', instructions: OBJECTIVE, criteria } },
+  }
+}
+
+// Laya's probabilities are close to uniform and, measured, lean AWAY from the
+// evaluation's best option (22% agreement over 3 options), so on their own
+// they play badly. The strategy is therefore given to Laya as a prior: the pick
+// maximises  log prior + log p_laya, where prior = softmax(score / PRIOR_T) over
+// the shown options. A confident Laya can still overrule the prior; a
+// near-uniform one defers to it. The combined distribution is what the game
+// shows, with Laya's own probabilities kept alongside as `layaProbabilities`.
+// LAYA_PRIOR_T=0 turns the prior off (Laya alone); lower = the strategy weighs more.
+const PRIOR_T = Number(process.env.LAYA_PRIOR_T ?? 150)
+
+export function combineWithPrior(response, candidates) {
+  const p = response?.answers?.placement
+  if (!p?.probabilities || PRIOR_T <= 0) return response
+  const byId = new Map(candidates.map((c) => [c.id, c]))
+  const ids = Object.keys(p.probabilities).filter((id) => byId.has(id))
+  if (!ids.length) return response
+  const top = Math.max(...ids.map((id) => byId.get(id).score))
+  const w = ids.map((id) => Math.exp((byId.get(id).score - top) / PRIOR_T) * Math.max(1e-6, p.probabilities[id]))
+  const z = w.reduce((a, b) => a + b, 0)
+  const combined = Object.fromEntries(ids.map((id, i) => [id, +(w[i] / z).toFixed(4)]))
+  const choice = ids[w.indexOf(Math.max(...w))]
+  return {
+    ...response,
+    answers: {
+      ...response.answers,
+      placement: { ...p, choice, probabilities: combined, confidence: combined[choice], layaChoice: p.choice, layaProbabilities: p.probabilities },
+    },
   }
 }
 

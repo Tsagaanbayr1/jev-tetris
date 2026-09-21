@@ -6,7 +6,7 @@
 
 import { Game } from '../engine/engine.js'
 import { JevClient } from '../ai/jev.js'
-import { LayaClient, buildLayaDecision } from '../ai/laya.js'
+import { LayaClient, buildLayaDecision, combineWithPrior } from '../ai/laya.js'
 import { candidatesFor, buildBattleState, buildBattleQuestions, readBattleDecision } from '../ai/battle.js'
 import { pathTo } from '../engine/search.js'
 import { columnHeights } from '../ai/heuristic.js'
@@ -49,11 +49,16 @@ async function turn(me, them) {
         questions: buildBattleQuestions(found.candidates) }
   let pick = null
   try {
-    pick = readBattleDecision(await me.client.ask(state, questions, { timeoutMs: 8000, retries: 1 }), candidates).chosen
+    let response = await me.client.ask(state, questions, { timeoutMs: 8000, retries: 1 })
+    if (me.model === 'laya') response = combineWithPrior(response, candidates)
+    pick = readBattleDecision(response, candidates).chosen
   } catch {}
   if (!pick) { me.fallbacks++; pick = found.heuristic }
   play(g, pick)
-  g.update(1000 / PPS)
+  // Advance the clock (garbage delay, gravity ramp) WITHOUT running gravity: a real
+  // bot moves the next piece at once, but update() would let it fall and lock at
+  // spawn first once gravity ramps up — which stacked towers in long games.
+  g.time += 1000 / PPS
   for (const ev of g.events) if (ev.type === 'attack') them.game.receive(ev.lines)
   g.events.length = 0
 }

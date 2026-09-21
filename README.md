@@ -142,9 +142,13 @@ no weights supplied.
 
 **2. The shortlist is code's job, the trade-off is Jev's.** With spins and hold,
 a piece has 60–120 reachable lock positions. A reachability search (`engine/search.js`)
-finds them all; a quad-seeking score keeps the best 14, always preserving the
-strongest attacks and one hold option. Within that shortlist, Jev decides —
-including whether to attack or survive.
+finds them all. An evaluation distilled from published bots (`ai/evaluate.js`:
+Cold Clear's features and weights, a versus garbage model, and one piece of
+lookahead), re-tuned by self-play, ranks them and keeps the best 14, always
+preserving the strongest attacks and one hold option. Within that shortlist, Jev
+decides — including whether to attack or survive — and sees each option's
+`strategy_rank` as advice. The research behind it is compacted in
+[`ai/STRATEGY.md`](ai/STRATEGY.md).
 
 **3. Decisions can happen before they are needed.** The round trip to Jev is
 300 ms–1.2 s (2.4 s cold), which would otherwise stall every piece. But the
@@ -157,8 +161,9 @@ the fingerprint misses and it asks fresh. A wasted request, never a wrong move.
 
 The objective text (`ai/battle.js`) also teaches the strategy explicitly, since
 a model can't be assumed to know that a single sends nothing and wastes the
-stack: survive first, never create holes, attack in bulk (quads over dribbles),
-keep a well for the next I piece, and hold is your reserve.
+stack: survive first (defense = attack + lines cleared), never create holes,
+attack in bulk (quads and T-spins, keep back-to-back alive), keep a well, and
+finish an opponent who is near the top.
 
 ## Rules implemented
 
@@ -183,6 +188,8 @@ ai/         the model boundary
   laya_server.py  local /v1/systemone sidecar running Laya (Python)
   ask.js        solo play: state + facts + typed questions     (measured findings here)
   battle.js     versus: candidate shortlist, facts, objective, parsing
+  evaluate.js   shortlist evaluation: Cold Clear features, garbage model, lookahead
+  STRATEGY.md   the Tetris-bot research, compacted, with sources
   heuristic.js  display-only baseline, so you can see where Jev disagrees
 public/     the browser game
   engine/…      the same engine modules, served to the client and shared
@@ -201,7 +208,19 @@ node test/bench.js 40     # live: plays N pieces through the real API and report
                           # agreement, attack, spins, latency percentiles
 DECIDER=laya node test/bench.js 50   # the same with Laya (sidecar running)
 node test/versus.js 150   # headless Jev vs Laya with garbage exchanged
+node test/selfplay.js 300 10 0.2   # evaluator alone under garbage pressure, no model
+node test/tune.js 26 0.25          # re-tune evaluation weights by self-play
 ```
+
+Improving the evaluation improves both bots, so measure it offline first with
+`test/selfplay.js` (held-out seeds: pass a different seed range), then confirm
+with the models. The current weights, on 10 held-out seeds x 300 pieces:
+
+| garbage per piece | previous evaluator | Cold Clear weights | tuned (current) |
+| --- | --- | --- | --- |
+| 0 | 6/10 died | 0/10 died | 0/10 died |
+| 0.2 | 10/10 died, 191 sent | 6/10 died, 392 sent | **1/10 died, 786 sent** |
+| 0.3 | 10/10 died, 87 sent | 8/10 died, 381 sent | **4/10 died, 468 sent** |
 
 The test suite includes a proof of the prefetch invariants: it plays real games,
 projects before each placement, and requires every non-null projection to match
@@ -220,18 +239,26 @@ for the wrong board.
 ## How Laya compares
 
 Laya reads at most 256 tokens of instructions + options and 1024 in total. Jev's
-battle payload is 442 + 285 + 1602 tokens, so sent as-is the objective would be
-cut to ~8 tokens and half the facts dropped. Laya gets a compact encoding instead
-(`ai/laya.js`): 8 options, each carrying its own facts next to its option marker,
-and a one-line objective.
+battle payload is 442 + 285 + 1602 tokens, so Laya gets a compact encoding
+(`ai/laya.js`): up to 10 options, each carrying its own facts next to its option
+marker, and a one-line objective.
 
-Measured on an M1 Pro (32 GB):
+On its own Laya is close to uniform over its options and, measured, leans *away*
+from the best one; labelling options with their rank, or showing fewer, made it
+worse. So the strategy reaches Laya as a **prior**: the pick maximises
+`log softmax(score / 150) + log p_laya`. A confident Laya can still overrule it
+(it does on ~19% of moves); a near-uniform one defers. The decision log shows the
+combined probabilities and notes when the strategy overruled Laya's own pick.
+`LAYA_PRIOR_T=0` turns the prior off.
+
+Measured on an M1 Pro (32 GB), before → after this evaluation work:
 
 | | Jev | Laya |
 | --- | --- | --- |
-| decision latency | ~290 ms (network) | ~82 ms (MPS fp32) |
-| confidence in its pick | 0.3–0.9 | ~0.1 (8 options: near uniform) |
-| headless versus, seed 4242 | **won** at piece 77, sent 17 | topped out, sent 6 |
+| decision latency | ~300 ms (network) | ~85 ms (MPS fp32) |
+| solo, attack per piece | 0.19 → **0.37** (6 quads / 100) | 0.12, topped out at 141 → **0.34, survived 200** |
+| confidence in its pick | 0.44 → 0.74 | ~0.1 alone; 0.6 with the prior |
+| head-to-head, seed 4242 | won both times | lasted 109 → 146 pieces, sent 6 → 19 |
 
 For Laya: CPU is ~160 ms, MPS autocast fp16/bf16 is *slower* (170–240 ms), and
 `model.half()` crashes in MPS matmul — so it runs fp32 on MPS. More RAM does not
