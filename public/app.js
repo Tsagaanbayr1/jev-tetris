@@ -30,10 +30,14 @@ const MODES = {
 }
 const mode = () => MODES[$('mode').value] ?? MODES['human-laya']
 const leftName = (md) => (md.left ? BOTS[md.left].name : HUMAN)
-/** Each bot has its own speed setting; MAX drops pieces as fast as decisions arrive. */
+/**
+ * Each bot has its own speed setting. MAX places pieces as fast as decisions
+ * arrive, but still plays every move as an input — an input a frame and a fast
+ * visible descent — so its pieces are watched moving rather than appearing.
+ */
 function pace(model) {
   const v = $(`${model}-pps`).value
-  return v === 'max' ? { pps: 0, turbo: true } : { pps: Number(v), turbo: false }
+  return v === 'max' ? { pps: 0, superhuman: true } : { pps: Number(v), superhuman: false }
 }
 
 let ctxHuman, ctxJev
