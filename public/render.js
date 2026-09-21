@@ -22,6 +22,13 @@ const HEAD = 2 * CELL
 export const CANVAS_W = SIDE + GAP + METER + 4 + FIELD_W + GAP + SIDE
 export const CANVAS_H = HEAD + FIELD_H + 2 // + a hair for the border
 
+// Callouts (DOUBLE, B2B...) sit at the bottom of the hold column; the decision
+// log (an HTML overlay, see app.js) fills the space between them and the hold box.
+const CALLOUT_H = 150
+// In canvas pixels: the panel is drawn translated down by HEAD (see drawPlayer).
+export const LOG_BOX = { x: 0, y: HEAD + 22 + SIDE * 0.72 + 14, w: SIDE + GAP, h: 0 }
+LOG_BOX.h = HEAD + FIELD_H - CALLOUT_H - LOG_BOX.y - 10
+
 export const COLOR = {
   I: '#3fd0e6', O: '#f2d24b', T: '#b26cf0',
   S: '#63d65f', Z: '#f0606d', J: '#5b7ff0', L: '#f29d4a',
@@ -29,14 +36,15 @@ export const COLOR = {
 }
 
 /** Size a canvas for the device pixel ratio and return a 1:1 context. */
-export function setupCanvas(canvas, w, h) {
+/** `scale` enlarges the board on screen; drawing code keeps its CELL-based units. */
+export function setupCanvas(canvas, w, h, scale = 1) {
   const dpr = window.devicePixelRatio || 1
-  canvas.width = Math.round(w * dpr)
-  canvas.height = Math.round(h * dpr)
-  canvas.style.width = `${w}px`
-  canvas.style.height = `${h}px`
+  canvas.width = Math.round(w * dpr * scale)
+  canvas.height = Math.round(h * dpr * scale)
+  canvas.style.width = `${Math.round(w * scale)}px`
+  canvas.style.height = `${Math.round(h * scale)}px`
   const ctx = canvas.getContext('2d')
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0)
   return ctx
 }
 
@@ -255,8 +263,8 @@ export function drawPlayer(ctx, game, fx, now, { dim = false } = {}) {
   ctx.lineWidth = 1
   ctx.strokeRect(fieldX + 0.5, 0.5, FIELD_W, FIELD_H)
 
-  // callouts: spin names, B2B, combo, all clear, under the hold box
-  let ty = SIDE * 0.72 + 60
+  // callouts: spin names, B2B, combo, all clear, at the foot of the hold column
+  let ty = FIELD_H - CALLOUT_H + 14 // translated coords: FIELD_H is the floor
   const recent = fx.items.filter((it) => it.kind === 'text' && now - it.t0 < it.life).slice(-3)
   for (const it of recent) {
     const k = 1 - (now - it.t0) / it.life

@@ -28,8 +28,12 @@ const STEP_MS = 40 // one input every 40 ms: fast, but you can follow it
 const SONIC_G = 2 // soft-drop speed while sliding down to a tuck or spin
 
 export class JevBot {
-  constructor(game, { pps = 1.2, opponent = null, onDecision = () => {} } = {}) {
+  // turbo: no visible input pacing — the whole route and the drop happen in one
+  // frame, so pieces go down as fast as decisions arrive.
+  constructor(game, { pps = 1.2, turbo = false, model = 'jev', opponent = null, onDecision = () => {} } = {}) {
+    this.turbo = turbo
     this.game = game
+    this.url = `/decide?model=${encodeURIComponent(model)}` // which decider plays this board
     this.opponent = opponent
     this.minPieceMs = pps > 0 ? 1000 / pps : 0
     this.onDecision = onDecision
@@ -60,6 +64,20 @@ export class JevBot {
     }
     if (this.state !== 'acting') return
 
+    if (this.turbo) {
+      for (let i = 0; i < 64 && this.actions.length; i++) {
+        const step = this.actions.shift()
+        if (step === 'hard') {
+          g.hardDrop()
+          this.state = 'idle'
+          return
+        }
+        if (step === 'sonic') while (g.stepDown()) {}
+        else this._input(step)
+      }
+      return
+    }
+
     const next = this.actions[0]
 
     if (next === 'sonic') {
@@ -86,6 +104,11 @@ export class JevBot {
 
     this.stepTimer = 0
     this.actions.shift()
+    this._input(next)
+  }
+
+  _input(next) {
+    const g = this.game
     switch (next) {
       case 'hold':
         g.holdPiece()
@@ -141,7 +164,7 @@ export class JevBot {
       d.prefetched = true
     } else {
       try {
-        const res = await fetch('/decide', {
+        const res = await fetch(this.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -181,7 +204,7 @@ export class JevBot {
     const pos = projectAfter(g, choice, oppHeight)
     if (!pos) return
     const key = keyOf(pos)
-    const promise = fetch('/decide', {
+    const promise = fetch(this.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pos),

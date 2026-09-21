@@ -5,10 +5,10 @@
 // connection to TypeSafe, and answers one question: given this position, where
 // does Jev put the piece?
 //
-//   POST /decide   { board, current, hold, queue, canHold, combo, b2b, incoming, opponent }
+//   POST /decide[?model=jev|laya]   { board, current, hold, queue, canHold, combo, b2b, incoming, opponent }
 //               -> { choice: { id, useHold, rot, x, y, spin, cells, path, sent, label },
 //                    confidence, probabilities, latencyMs, options, total, fallback }
-//   GET  /health   -> { ok, model }   (the VS screen checks this before a match)
+//   GET  /health   -> { ok, model, models: { jev, laya } }   (checked before a match)
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 
 import { COLS, ROWS } from './engine/pieces.js'
 import { JevClient } from './ai/jev.js'
+import { LayaClient, buildLayaDecision } from './ai/laya.js'
 import {
   candidatesFor, buildBattleState, buildBattleQuestions, readBattleDecision,
 } from './ai/battle.js'
@@ -31,7 +32,17 @@ const PORT = Number(process.env.PORT ?? 8081)
 const REQUEST_MS = 6_000 // a battle cannot wait long; the client falls back past this
 const BODY_MAX = 64 * 1024
 
-const jev = new JevClient()
+// Two deciders behind one endpoint: Jev (TypeSafe API) and Laya Multilingual
+// running locally (ai/laya_server.py). Each bot names its model per request, so
+// Jev and Laya can play each other. DECIDER only sets the default.
+const DECIDER = process.env.DECIDER === 'laya' ? 'laya' : 'jev'
+const clients = { laya: new LayaClient() }
+let jevError = null
+try {
+  clients.jev = new JevClient()
+} catch (err) {
+  jevError = err.message // no API key: Laya still works, Jev requests get fallbacks
+}
 
 // --- decisions -----------------------------------------------------------------
 
@@ -71,17 +82,26 @@ const wire = (c) => ({
 
 let decided = 0
 
-async function decide(pos) {
-  const { candidates, total, heuristic } = candidatesFor(pos)
-  if (!candidates.length) return { choice: null, options: 0, total }
+async function decide(pos, model) {
+  const client = clients[model]
+  const found = candidatesFor(pos)
+  const { total, heuristic } = found
+  if (!found.candidates.length) return { choice: null, options: 0, total }
 
-  const state = buildBattleState(pos, candidates, pos.opponent)
-  const questions = buildBattleQuestions(candidates)
+  let candidates, state, questions
+  if (model === 'laya') {
+    ;({ candidates, state, questions } = buildLayaDecision(pos, found.candidates))
+  } else {
+    candidates = found.candidates
+    state = buildBattleState(pos, candidates, pos.opponent)
+    questions = buildBattleQuestions(candidates)
+  }
 
   let d = null
   let error = null
   try {
-    const response = await jev.ask(state, questions, { timeoutMs: REQUEST_MS, retries: 0 })
+    if (!client) throw new Error(jevError ?? `unknown model ${model}`)
+    const response = await client.ask(state, questions, { timeoutMs: REQUEST_MS, retries: 0 })
     d = readBattleDecision(response, candidates)
   } catch (err) {
     error = err.message
@@ -92,12 +112,13 @@ async function decide(pos) {
   const fallback = !d?.chosen
   const chosen = fallback ? heuristic : d.chosen
   const probs = d?.probabilities
-    ? Object.entries(d.probabilities).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, p]) => ({ id, p }))
+    ? Object.entries(d.probabilities).sort((a, b) => b[1] - a[1]).slice(0, 5)
+        .map(([id, p]) => ({ id, p, label: candidates.find((c) => c.id === id)?.label ?? id }))
     : null
 
   decided++
   console.log(
-    `  [${String(decided).padStart(4)}] ${chosen.type} ${chosen.id.padEnd(12)}` +
+    `  [${String(decided).padStart(4)}] ${model.padEnd(4)} ${chosen.type} ${chosen.id.padEnd(12)}` +
       ` sends ${chosen.sent}${chosen.spin !== 'none' ? ` ${chosen.spin}-spin` : ''}` +
       ` conf ${(d?.confidence ?? 0).toFixed(2)} ${String(d?.latencyMs ?? '--').padStart(4)}ms` +
       ` ${candidates.length}/${total} opts${fallback ? `  FALLBACK${error ? ` (${error})` : ''}` : ''}`
@@ -113,6 +134,21 @@ async function decide(pos) {
     fallback,
     error,
   }
+}
+
+/** Is each decider usable right now? Laya is probed; Jev only needs its key (no paid call). */
+async function health() {
+  let laya
+  try {
+    const res = await fetch(new URL('/health', clients.laya.baseUrl), { signal: AbortSignal.timeout(1500) })
+    laya = { ok: res.ok, model: clients.laya.model, ...clients.laya.stats() }
+  } catch {
+    laya = { ok: false, error: 'sidecar not running: .venv-laya/bin/python ai/laya_server.py' }
+  }
+  const jev = clients.jev
+    ? { ok: true, model: clients.jev.model, ...clients.jev.stats() }
+    : { ok: false, error: jevError }
+  return { ok: true, model: DECIDER, models: { jev, laya } }
 }
 
 // --- HTTP ------------------------------------------------------------------------
@@ -158,7 +194,9 @@ const server = http.createServer((req, res) => {
         return json(res, 400, { error: err.message })
       }
       try {
-        json(res, 200, await decide(pos))
+        const model = url.searchParams.get('model') ?? DECIDER
+        if (!(model in clients) && model !== 'jev') return json(res, 400, { error: `unknown model ${model}` })
+        json(res, 200, await decide(pos, model))
       } catch (err) {
         console.error('  ! decide failed:', err)
         json(res, 500, { error: err.message })
@@ -168,7 +206,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/health') {
-    return json(res, 200, { ok: true, model: jev.model, ...jev.stats() })
+    return health().then((h) => json(res, 200, h))
   }
 
   const rel = STATIC[url.pathname]
@@ -202,6 +240,7 @@ server.on('error', (err) => {
 })
 
 server.listen(PORT, () => {
-  console.log(`Tsagaanbayar vs Jev  ->  http://localhost:${PORT}`)
-  console.log(`model ${jev.model} via ${jev.baseUrl}, keep-alive pooled\n`)
+  console.log(`Jev / Laya Tetris  ->  http://localhost:${PORT}`)
+  console.log(`jev  ${clients.jev ? `${clients.jev.model} via ${clients.jev.baseUrl}` : `unavailable: ${jevError}`}`)
+  console.log(`laya ${clients.laya.model} via ${clients.laya.baseUrl}\n`)
 })

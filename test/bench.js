@@ -6,9 +6,11 @@
 // agrees with the shortlist's own top pick. No opponent, so no garbage.
 //
 //   node test/bench.js [pieces] [--verbose]
+//   DECIDER=laya node test/bench.js ...   (needs ai/laya_server.py running)
 
 import { Game } from '../engine/engine.js'
 import { JevClient } from '../ai/jev.js'
+import { LayaClient, buildLayaDecision } from '../ai/laya.js'
 import {
   candidatesFor, buildBattleState, buildBattleQuestions, readBattleDecision,
 } from '../ai/battle.js'
@@ -35,7 +37,8 @@ function play(game, c) {
 }
 
 async function main() {
-  const jev = new JevClient()
+  const LAYA = process.env.DECIDER === 'laya'
+  const jev = LAYA ? new LayaClient() : new JevClient()
   const game = new Game({ seed })
   let agreed = 0
   let fallbacks = 0
@@ -51,12 +54,18 @@ async function main() {
       board: game.board, current: game.current, hold: game.hold, queue: game.queue,
       canHold: game.canHold, combo: game.combo, b2b: game.b2b, incoming: 0,
     }
-    const { candidates, total, heuristic } = candidatesFor(pos)
-    if (!candidates.length) break
+    const found = candidatesFor(pos)
+    const { total, heuristic } = found
+    if (!found.candidates.length) break
+    const { candidates, state, questions } = LAYA
+      ? buildLayaDecision(pos, found.candidates)
+      : { candidates: found.candidates,
+          state: buildBattleState(pos, found.candidates),
+          questions: buildBattleQuestions(found.candidates) }
 
     let d = null
     try {
-      const response = await jev.ask(buildBattleState(pos, candidates), buildBattleQuestions(candidates))
+      const response = await jev.ask(state, questions)
       d = readBattleDecision(response, candidates)
     } catch (err) {
       if (VERBOSE) console.log(`  ! ${err.message}`)

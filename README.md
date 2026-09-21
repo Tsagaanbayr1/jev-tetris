@@ -1,36 +1,99 @@
 # Jev Tetris
 
-A real-time Tetris match you play in the browser against **Jev**, TypeSafe's
-decision model. Not a chat wrapper — a versus game with garbage, spins, combos
+A real-time Tetris match in the browser against **Jev**, TypeSafe's decision
+model, or **Laya**, an open decision model running on your own machine — or
+watch Jev and Laya play each other. Not a chat wrapper — a versus game with garbage, spins, combos
 and back-to-back chains, where every move the opponent makes is a decision the
 model makes, live, while the piece is falling.
 
 Both games run in the browser in one animation loop, so your inputs never make a
-network round trip. The server does one job: given a position, ask Jev where the
-piece goes.
+network round trip. The server does one job: given a position, ask a model where
+the piece goes.
 
 ```
 ┌─ browser ────────────────────────────────┐        ┌─ server ──────────────┐
-│  your game (input → engine)              │        │  reachability search  │
-│  Jev's game (decision → real inputs)     │◀──────▶│  candidate shortlist  │
+│  left game  (you, or the Jev bot)        │        │  reachability search  │
+│  right game (Laya or Jev bot)            │◀──────▶│  candidate shortlist  │
 │  one animation frame drives both         │ /decide│  one typed question   │
-└──────────────────────────────────────────┘        └──────────┬────────────┘
-                                                          /v1/systemone
-                                                               │
-                                                        TypeSafe (Jev)
+└──────────────────────────────────────────┘ ?model └─────┬───────────┬─────┘
+                                                          │           │
+                                                  /v1/systemone  /v1/systemone
+                                                          │           │
+                                                  TypeSafe (Jev)  ai/laya_server.py
+                                                                  (Laya, local)
 ```
 
-## Quick start
+## Setup
 
-Node 18+ (uses the built-in `fetch`). No dependencies to install.
+**Requirements:** Node 18+ (uses the built-in `fetch`, no npm dependencies). For
+Laya: Python 3.9+ and ~1.5 GB free disk; an Apple Silicon GPU (MPS) or CUDA is
+used automatically when present, otherwise CPU.
+
+You can run either model alone or both. The server starts with whatever is
+available, and the VS screen shows which models are online.
+
+### 1. Jev (TypeSafe API)
 
 ```bash
-cp .env.example .env      # then put your TypeSafe API key in it
+cp .env.example .env      # then put your TypeSafe API key in .env
+```
+
+`.env` is git-ignored. The key stays on the server; the browser never sees it.
+Without a key the server still runs, and Jev's moves fall back to the shortlist's
+own pick (labelled `FALLBACK` on screen).
+
+### 2. Laya (local, no key)
+
+[Laya Multilingual](https://huggingface.co/convaiinnovations/laya-multilingual)
+(Apache 2.0) runs in a small Python sidecar that serves the same `/v1/systemone`
+request shape as Jev:
+
+```bash
+python3 -m venv .venv-laya
+.venv-laya/bin/pip install laya
+.venv-laya/bin/python ai/laya_server.py     # first run downloads the model (~640 MB)
+```
+
+It listens on `127.0.0.1:8090` (`LAYA_PORT`, `LAYA_MODEL`, `LAYA_DEVICE` override
+it; the game server finds it via `LAYA_URL`). Leave it running.
+
+### 3. Start the game
+
+```bash
 npm start                 # → http://localhost:8081
 ```
 
-The API key stays on the server; the browser never sees it. `npm test` runs the
-engine and AI test suites offline — no key needed.
+To keep both running in the background:
+
+```bash
+nohup .venv-laya/bin/python ai/laya_server.py > /tmp/laya-server.log 2>&1 &
+nohup node server.js > /tmp/jev-server.log 2>&1 &
+```
+
+After changing server-side code, restart `node server.js` — an old process on
+8081 keeps serving the old code (`pkill -f "node server.js"`).
+
+`npm test` runs the engine and AI test suites offline — no key, no model needed.
+
+## Playing
+
+Choose the match on the VS screen:
+
+| Match | Left board | Right board |
+| --- | --- | --- |
+| You vs Laya | you (keyboard) | Laya |
+| You vs Jev | you (keyboard) | Jev |
+| Jev vs Laya | Jev | Laya |
+
+Each bot has its own speed: 0.8–3.5 pieces per second, unlimited, or **MAX**,
+where the whole route and drop happen in one frame as soon as the decision
+arrives. Laya defaults to MAX (~9 pieces/s on an M1 Pro, bound by its ~85 ms
+inference); Jev defaults to 1.8.
+
+Under each bot's HOLD box is a **decision log**, newest on top: the move played,
+whether it was pre-planned or how long it took, the top 3 options with their
+probabilities (the chosen one marked ✓), the model's confidence, and how many of
+the reachable placements it was shown.
 
 ## Controls
 
@@ -46,8 +109,7 @@ engine and AI test suites offline — no key needed.
 | `Esc` | pause |
 
 Handling is configurable in `public/input.js` (DAS 167 ms, ARR 33 ms, SDF 6 —
-competitive-client defaults). Jev's speed is set on the VS screen: 0.8 to 3.5
-pieces per second, or unlimited.
+competitive-client defaults).
 
 ## How Jev plays
 
@@ -101,15 +163,17 @@ engine/     pure game logic — no timers, no DOM (pieces, rules, engine)
   search.js     BFS over the piece's real state space → every reachable landing
 ai/         the model boundary
   jev.js        pooled keep-alive HTTPS client for /v1/systemone
+  laya.js       Laya client + compact encoding that fits Laya's token budget
+  laya_server.py  local /v1/systemone sidecar running Laya (Python)
   ask.js        solo play: state + facts + typed questions     (measured findings here)
   battle.js     versus: candidate shortlist, facts, objective, parsing
   heuristic.js  display-only baseline, so you can see where Jev disagrees
 public/     the browser game
   engine/…      the same engine modules, served to the client and shared
-  bot.js        plays Jev's choices back as real inputs at a visible pace
+  bot.js        plays a model's choices back as real inputs (paced, or MAX)
   predict.js    prefetch projection (pure — runs in the browser and the tests)
   render.js     canvas rendering and effects
-server.js   static files + POST /decide + GET /health
+server.js   static files + POST /decide?model=jev|laya + GET /health
 test/       engine rules, SRS kicks, spins, search, prefetch projection, live bench
 ```
 
@@ -119,6 +183,8 @@ test/       engine rules, SRS kicks, spins, search, prefetch projection, live be
 npm test                  # engine + AI suites, offline
 node test/bench.js 40     # live: plays N pieces through the real API and reports
                           # agreement, attack, spins, latency percentiles
+DECIDER=laya node test/bench.js 50   # the same with Laya (sidecar running)
+node test/versus.js 150   # headless Jev vs Laya with garbage exchanged
 ```
 
 The test suite includes a proof of the prefetch invariants: it plays real games,
@@ -129,8 +195,29 @@ for the wrong board.
 ## Notes
 
 - **The key is never in the client.** Jev is only ever called by `server.js`.
-- Jev's decisions are shown on screen with confidence and latency; when a request
+- A model's decisions are shown on screen with confidence and latency; when a request
   fails, the fallback (the shortlist's own top pick) is labelled `FALLBACK`, never
   passed off as the model's choice.
 - No license file yet — all rights reserved by default. Open an issue if you'd
   like one.
+
+## How Laya compares
+
+Laya reads at most 256 tokens of instructions + options and 1024 in total. Jev's
+battle payload is 442 + 285 + 1602 tokens, so sent as-is the objective would be
+cut to ~8 tokens and half the facts dropped. Laya gets a compact encoding instead
+(`ai/laya.js`): 8 options, each carrying its own facts next to its option marker,
+and a one-line objective.
+
+Measured on an M1 Pro (32 GB):
+
+| | Jev | Laya |
+| --- | --- | --- |
+| decision latency | ~290 ms (network) | ~82 ms (MPS fp32) |
+| confidence in its pick | 0.3–0.9 | ~0.1 (8 options: near uniform) |
+| headless versus, seed 4242 | **won** at piece 77, sent 17 | topped out, sent 6 |
+
+For Laya: CPU is ~160 ms, MPS autocast fp16/bf16 is *slower* (170–240 ms), and
+`model.half()` crashes in MPS matmul — so it runs fp32 on MPS. More RAM does not
+help; the model needs ~1.3 GB and is compute-bound. The sidecar warms up at start
+and keeps the GPU warm through idle gaps (a cold first call took 0.8–4 s).
