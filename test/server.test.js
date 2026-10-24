@@ -112,6 +112,13 @@ test('a DNS-rebound hostname is refused', async () => {
   assert.equal(d.status, 403)
 })
 
+test('a Host header with a path or userinfo is refused', async () => {
+  for (const host of [`localhost:${port}/x`, `evil.example@localhost:${port}`, `localhost:${port}?a`]) {
+    const res = await request({ host })
+    assert.equal(res.status, 403, host)
+  }
+})
+
 test('loopback names are accepted', async () => {
   for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, 'localhost']) {
     const res = await request({ host })

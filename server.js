@@ -191,7 +191,8 @@ const STATIC = {
 
 /** Hostname from a Host header (lowercase, IPv6 in brackets), or null if it is not one. */
 function hostnameOf(hostHeader) {
-  if (!hostHeader) return null
+  // An authority only: no path, query, fragment, userinfo or whitespace.
+  if (!hostHeader || /[/?#@\\\s]/.test(hostHeader)) return null
   try {
     return new URL(`http://${hostHeader}`).hostname.toLowerCase()
   } catch {
