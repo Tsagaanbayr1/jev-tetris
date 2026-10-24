@@ -86,6 +86,12 @@ not make Laya faster: it needs ~1.3 GB and is limited by GPU compute.
 
 To run just the game server in the foreground instead: `npm start`.
 
+The game server listens on `127.0.0.1` only, because every Jev decision is a paid
+call on your key. It answers to `localhost`, `127.0.0.1` and other IP addresses,
+and only the game page itself (same origin, JSON body) may ask `/decide`. To play
+from another device on purpose, start it with `HOST=0.0.0.0` and open it by IP,
+or list the hostname you use in `ALLOWED_HOSTS` (comma-separated).
+
 After changing server-side code, restart `node server.js` — an old process on
 8081 keeps serving the old code (`pkill -f "node server.js"`).
 

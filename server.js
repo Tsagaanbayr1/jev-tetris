@@ -11,6 +11,7 @@
 //   GET  /health   -> { ok, model, models: { jev, laya } }   (checked before a match)
 
 import http from 'node:http'
+import net from 'node:net'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +29,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // from its own origin, so this UI could never load there. A different port is a
 // different origin, which sidesteps it entirely. Override with PORT=... for the old one.
 const PORT = Number(process.env.PORT ?? 8081)
+// Loopback only by default: every Jev decision is a paid TypeSafe call made with
+// the key this server holds, so nobody else on the network should be able to ask
+// for one. HOST=0.0.0.0 opens it up on purpose (then name the machine in
+// ALLOWED_HOSTS if you reach it by hostname rather than by IP).
+const HOST = process.env.HOST || '127.0.0.1'
+const ALLOWED_HOSTS = new Set(
+  (process.env.ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)
+)
 
 const REQUEST_MS = 6_000 // a battle cannot wait long; the client falls back past this
 const BODY_MAX = 64 * 1024
@@ -178,15 +187,72 @@ const STATIC = {
   '/engine/search.js': 'engine/search.js',
 }
 
+// --- who may ask -------------------------------------------------------------------
+
+/** Hostname from a Host header (lowercase, IPv6 in brackets), or null if it is not one. */
+function hostnameOf(hostHeader) {
+  if (!hostHeader) return null
+  try {
+    return new URL(`http://${hostHeader}`).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Names this server answers to. Anything else is a DNS-rebinding attempt: a
+ * website whose hostname was re-pointed at this machine to read and drive it as
+ * if it were same-origin. An IP literal cannot be rebound, so it is accepted.
+ */
+function hostAllowed(hostHeader) {
+  const name = hostnameOf(hostHeader)
+  if (!name) return false
+  if (name === 'localhost' || name.endsWith('.localhost')) return true
+  if (net.isIP(name.replace(/^\[|\]$/g, ''))) return true
+  return ALLOWED_HOSTS.has(name)
+}
+
+/**
+ * A browser names the page that sent a request in Origin. Only the game page
+ * (same scheme, host and port as this server) may ask for decisions; requests
+ * without an Origin come from scripts on this machine, such as play.sh.
+ */
+function originAllowed(req) {
+  const origin = req.headers.origin
+  if (origin === undefined) return true
+  try {
+    const o = new URL(origin)
+    return o.protocol === 'http:' && o.host === String(req.headers.host).toLowerCase()
+  } catch {
+    return false
+  }
+}
+
 function json(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
   res.end(JSON.stringify(obj))
 }
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`)
+  if (!hostAllowed(req.headers.host)) {
+    return json(res, 403, { error: 'unknown host' })
+  }
+  // A fixed base: the path and query are all that is read, and a Host header
+  // that is not a valid authority would otherwise throw here.
+  let url
+  try {
+    url = new URL(req.url, 'http://localhost')
+  } catch {
+    return json(res, 400, { error: 'bad request' })
+  }
 
   if (req.method === 'POST' && url.pathname === '/decide') {
+    if (!originAllowed(req)) return json(res, 403, { error: 'cross-origin request refused' })
+    // application/json cannot be sent cross-site without a CORS preflight, which
+    // this server never answers, so a form or no-cors fetch elsewhere cannot get here.
+    if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) {
+      return json(res, 415, { error: 'Content-Type must be application/json' })
+    }
     let body = ''
     req.on('data', (c) => {
       body += c
@@ -201,7 +267,7 @@ const server = http.createServer((req, res) => {
       }
       try {
         const model = url.searchParams.get('model') ?? DECIDER
-        if (!(model in clients) && model !== 'jev') return json(res, 400, { error: `unknown model ${model}` })
+        if (model !== 'jev' && model !== 'laya') return json(res, 400, { error: 'unknown model' })
         json(res, 200, await decide(pos, model))
       } catch (err) {
         console.error('  ! decide failed:', err)
@@ -245,8 +311,11 @@ server.on('error', (err) => {
   throw err
 })
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log(`Jev / Laya Tetris  ->  http://localhost:${PORT}`)
+  if (HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1') {
+    console.warn(`WARNING: listening on ${HOST}: anyone who can reach this port can spend your TypeSafe credits.`)
+  }
   console.log(`jev  ${clients.jev ? `${clients.jev.model} via ${clients.jev.baseUrl}` : `unavailable: ${jevError}`}`)
   console.log(`laya ${clients.laya.model} via ${clients.laya.baseUrl}\n`)
 })
